@@ -1,0 +1,39 @@
+# Ignore Python bytecode files
+*.pyc
+*.pyo
+__pycache__/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore macOS system files
+.DS_Store
+
+# Ignore environment directories
+venv/
+env/
+*.env
+
+# Ignore log files
+*.log
+
+# Ignore specific files created by JupyterLab
+*.bak
+*.swp
+
+# Ignore Python virtual environment folder (Conda or others)
+# Uncomment if you have virtual environments in a specific directory
+# .venv/
+
+# Ignore .idea directory created by JetBrains IDEs (e.g., PyCharm)
+.idea/
+
+# Ignore VSCode settings and directories
+.vscode/
+
+# Ignore jupyter notebook's notebook-specific data
+*.checkpoint
+
+# Ignore any database files or temporary data
+*.db
+*.sqlite3
