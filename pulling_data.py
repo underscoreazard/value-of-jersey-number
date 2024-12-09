@@ -14,9 +14,9 @@ def fetch_all_player_data(player):
     """
     Fetch all data for a player (info, jersey numbers, market values) in parallel.
     """
+
     player_id = player["player_id"]
     if player_id in processed_player_ids:
-        print(f"{player_id} data already exists!")
         return None, None, None
 
     def fetch_player_info_task():
@@ -45,8 +45,11 @@ def fetch_all_player_data(player):
     return player_info, jersey_numbers, market_values
 
 
-# Helper function to create directories
 def create_directory(path):
+    """
+    Helper function to create directories
+    """
+
     if not os.path.exists(path):
         os.makedirs(path)
 
@@ -87,6 +90,10 @@ def get_players(club_id, season_id):
 
 
 def fetch_player_info(player_id):
+    """
+    Retrieves information on a specific player
+    """
+
     url = f"http://localhost:8000/players/{player_id}/profile"
     response = requests.get(url)
     if response.status_code == 200:
@@ -115,6 +122,10 @@ def fetch_player_info(player_id):
 
 
 def get_player_market_values(player_id):
+    """
+    Obtains every recorded market value for a given player
+    """
+
     url = f"http://localhost:8000/players/{player_id}/market_value"
     response = requests.get(url)
     if response.status_code == 200:
@@ -142,6 +153,10 @@ def get_player_market_values(player_id):
 
 
 def get_player_jersey_number(player_id):
+    """
+    Obtains every recorded jersey number a player has wore
+    """
+
     url = f"http://localhost:8000/players/{player_id}/jersey_numbers"
     response = requests.get(url)
     if response.status_code == 200:
@@ -160,17 +175,34 @@ def get_player_jersey_number(player_id):
 
 
 def build_player_dataset(competitions_seasons):
+    """
+    Builds the datasets for player_info, jersey_numbers, market_values, and competition_clubs
+    """
+
     player_info_list = []
     jersey_numbers_list = []
     market_values_list = []
+    competition_clubs = {}
 
     for competition_id, season_id in competitions_seasons:
+        print(f"[ Started on {competition_id} for {season_id} ]")
         clubs = get_clubs(competition_id, season_id)
 
         for club in clubs:
             club_id = club["club_id"]
             club_name = club["club_name"]
             print(f"Working on {club_name} players")
+
+            club_key = (competition_id, club_id)
+            if club_key not in competition_clubs:
+                competition_clubs[club_key] = {
+                    "competition_id": competition_id,
+                    "club_id": club_id,
+                    "club_name": club_name,
+                    "season_ids": [season_id],
+                }
+            else:
+                competition_clubs[club_key]["season_ids"].append(season_id)
 
             players = get_players(club_id, season_id)
 
@@ -189,11 +221,35 @@ def build_player_dataset(competitions_seasons):
                 if market_values:
                     market_values_list.extend(market_values)
 
+    competition_clubs_list = []
+    for club_data in competition_clubs.values():
+        competition_clubs_list.append(
+            {
+                "competition_id": club_data["competition_id"],
+                "season_id(s)": ",".join(
+                    map(str, sorted(club_data["season_ids"], reverse=True))
+                ),
+                "club_id": club_data["club_id"],
+                "club_name": club_data["club_name"],
+            }
+        )
+
     # Export data
-    export_data(player_info_list, jersey_numbers_list, market_values_list)
+    export_data(
+        player_info_list,
+        jersey_numbers_list,
+        market_values_list,
+        competition_clubs_list,
+    )
 
 
-def export_data(player_info_list, jersey_numbers_list, market_values_list):
+def export_data(
+    player_info_list, jersey_numbers_list, market_values_list, competition_clubs_list
+):
+    """
+    Exports the datasets created into a .csv file
+    """
+
     today = datetime.now().strftime("%Y_%m_%d")
     data_dir = os.path.join("data", today)
     create_directory(data_dir)
@@ -214,17 +270,33 @@ def export_data(player_info_list, jersey_numbers_list, market_values_list):
         os.path.join(data_dir, "player_market_values.csv"), index=False
     )
 
-    # # Export competition_clubs
-    # competition_clubs_list = list(competition_clubs_cache.values())
-    # competition_clubs_df = pd.DataFrame(competition_clubs_list)
-    # competition_clubs_df.to_csv(
-    #     os.path.join(data_dir, "competition_clubs.csv"), index=False
-    # )
+    # Export competition_clubs
+    competition_clubs_df = pd.DataFrame(competition_clubs_list)
+    competition_clubs_df.to_csv(
+        os.path.join(data_dir, "competition_clubs.csv"), index=False
+    )
 
 
 if __name__ == "__main__":
-    competitions = ["GB1"]
-    seasons = ["2024", "2023"]
+    competitions = [
+        "GB1",  # Premier League
+        "ES1",  # LaLiga
+        "L1",  # Bundesliga
+        "IT1",  # Serie A
+        "FR1",  # Ligue 1
+    ]
+    seasons = [
+        "2024",
+        "2023",
+        "2022",
+        "2021",
+        "2020",
+        "2019",
+        "2018",
+        "2017",
+        "2016",
+        "2015",
+    ]
 
     competitions_seasons = list(itertools.product(competitions, seasons))
 
@@ -233,4 +305,4 @@ if __name__ == "__main__":
     end_time = time.time()
 
     print()
-    print(f"[ Build time: {end_time - start_time:.2f} seconds ]")
+    print(f"[ Build time for dataset was: {end_time - start_time:.2f} seconds ]")
