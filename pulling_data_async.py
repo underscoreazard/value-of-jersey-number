@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 import itertools
 import asyncio
-from tqdm.asyncio import tqdm
+from tqdm import tqdm
 import aiohttp
 import pandas as pd
 
@@ -185,24 +185,21 @@ async def build_player_dataset(competitions_seasons):
         Process all clubs for a given competition and season
         """
         clubs = await get_clubs(competition_id, season_id)
-        if not isinstance(clubs, list):
-            raise TypeError("Expected get_clubs to return a list.")
 
-        # Use asyncio.gather for concurrency
-        tasks = [
-            process_club(competition_id, season_id, club, player_ids) for club in clubs
-        ]
-        for f in asyncio.as_completed(tasks):
-            await f
-            progress_bar.update(1)
+        # Process all clubs asynchronously
+        await asyncio.gather(
+            *[
+                process_club(competition_id, season_id, club, player_ids)
+                for club in clubs
+            ]
+        )
+        progress_bar.update(1)
 
     # Step 1: Process all competition-season pairs to collect unique player IDs
-    total_clubs = 0
-    for comp, season in competitions_seasons:
-        clubs = await get_clubs(comp, season)
-        total_clubs += len(clubs)
-
-    with tqdm(total=total_clubs, desc="[Processing Clubs]") as progress_bar:
+    with tqdm(
+        total=len(competitions_seasons),
+        desc="[Processing all competition-season pairs]",
+    ) as progress_bar:
         await asyncio.gather(
             *[
                 process_competition_season(comp, season, progress_bar)
@@ -232,10 +229,17 @@ async def build_player_dataset(competitions_seasons):
             market_values_list.extend(market_values)
         progress_bar.update(1)
 
-    with tqdm(total=len(player_ids), desc="[Processing Players]") as progress_bar:
-        await asyncio.gather(
-            *[process_player(player_id, progress_bar) for player_id in player_ids]
-        )
+    BATCH_SIZE = 1600
+    batches = [
+        list(player_ids)[i : i + BATCH_SIZE]
+        for i in range(0, len(player_ids), BATCH_SIZE)
+    ]
+
+    for batch in batches:
+        with tqdm(total=len(batch), desc="[Processing Players...]") as progress_bar:
+            await asyncio.gather(
+                *[process_player(player_id, progress_bar) for player_id in batch]
+            )
 
     # Step 3: Convert competition_clubs dictionary to list
     competition_clubs_list = [
@@ -265,7 +269,7 @@ def export_data(
     """
     Exports the datasets created into a .csv file
     """
-    today = datetime.now().strftime("%Y_%m_%d")
+    today = datetime.now().strftime("%Y_%m_%d_%H_%M")
     data_dir = os.path.join("data", today)
     os.makedirs(data_dir, exist_ok=True)
 
@@ -292,26 +296,26 @@ def export_data(
     )
 
 
-# Start the asyncio event loop
 if __name__ == "__main__":
+    # To make sure no accident click ends up making a intensive call, I have commented out most of the competitions & seasons
     competitions = [
         "GB1",  # Premier League
         "ES1",  # LaLiga
-        # "L1",  # Bundesliga
-        # "IT1",  # Serie A
-        # "FR1",  # Ligue 1
+        "L1",  # Bundesliga
+        "IT1",  # Serie A
+        "FR1",  # Ligue 1
     ]
     seasons = [
         "2024",
         "2023",
-        # "2022",
-        # "2021",
-        # "2020",
-        # "2019",
-        # "2018",
-        # "2017",
-        # "2016",
-        # "2015",
+        "2022",
+        "2021",
+        "2020",
+        "2019",
+        "2018",
+        "2017",
+        "2016",
+        "2015",
     ]
 
     competitions_seasons = list(itertools.product(competitions, seasons))
