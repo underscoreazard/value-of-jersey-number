@@ -14,19 +14,22 @@ async def fetch_all_player_data(player):
     """
     player_id = player["player_id"]
 
-    async def fetch_player_info_task():
-        return await fetch_player_info(player_id)
+    async def fetch_player_info_task(session):
+        return await fetch_player_info(player_id, session)
 
-    async def fetch_jersey_number_task():
-        return await get_player_jersey_number(player_id)
+    async def fetch_jersey_number_task(session):
+        return await get_player_jersey_number(player_id, session)
 
-    async def fetch_market_values_task():
-        return await get_player_market_values(player_id)
+    async def fetch_market_values_task(session):
+        return await get_player_market_values(player_id, session)
 
     # Run all tasks in parallel
-    player_info, jersey_numbers, market_values = await asyncio.gather(
-        fetch_player_info_task(), fetch_jersey_number_task(), fetch_market_values_task()
-    )
+    async with aiohttp.ClientSession() as session:
+        player_info, jersey_numbers, market_values = await asyncio.gather(
+            fetch_player_info_task(session),
+            fetch_jersey_number_task(session),
+            fetch_market_values_task(session),
+        )
 
     return player_info, jersey_numbers, market_values
 
@@ -68,89 +71,86 @@ async def get_players(club_id, season_id, player_ids):
                 )
 
 
-async def fetch_player_info(player_id):
+async def fetch_player_info(player_id, session):
     """
     Retrieves information on a specific player
     """
     url = f"http://localhost:8000/players/{player_id}/profile"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                player_json = await response.json()
-                return {
-                    "player_id": player_id,
-                    "player_name": player_json.get("name"),
-                    "image_url": player_json.get("imageURL"),
-                    "date_of_birth": player_json.get("dateOfBirth"),
-                    "height": player_json.get("height"),
-                    "primary_citizenship": player_json.get("citizenship")[0],
-                    "secondary_citizenship": (
-                        player_json.get("citizenship", [None])[1]
-                        if len(player_json.get("citizenship", [])) > 1
-                        else None
-                    ),
-                    "main_position": player_json.get("position", {}).get("main"),
-                    "other_positions": ", ".join(
-                        player_json.get("position", {}).get("other", [])
-                    ),
-                    "preferred_foot": player_json.get("foot"),
-                    "outfitter": player_json.get("outfitter"),
-                }
-            else:
-                return {"player_id": player_id, "error": f"Error {response.status}"}
+    async with session.get(url) as response:
+        if response.status == 200:
+            player_json = await response.json()
+            return {
+                "player_id": player_id,
+                "player_name": player_json.get("name"),
+                "image_url": player_json.get("imageURL"),
+                "date_of_birth": player_json.get("dateOfBirth"),
+                "height": player_json.get("height"),
+                "primary_citizenship": player_json.get("citizenship")[0],
+                "secondary_citizenship": (
+                    player_json.get("citizenship", [None])[1]
+                    if len(player_json.get("citizenship", [])) > 1
+                    else None
+                ),
+                "main_position": player_json.get("position", {}).get("main"),
+                "other_positions": ", ".join(
+                    player_json.get("position", {}).get("other", [])
+                ),
+                "preferred_foot": player_json.get("foot"),
+                "outfitter": player_json.get("outfitter"),
+            }
+        else:
+            return {"player_id": player_id, "error": f"Error {response.status}"}
 
 
-async def get_player_market_values(player_id):
+async def get_player_market_values(player_id, session):
     """
     Obtains every recorded market value for a given player
     """
     url = f"http://localhost:8000/players/{player_id}/market_value"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                market_value_data = await response.json()
-                processed_data = []
-                for entry in market_value_data.get("marketValueHistory", []):
-                    date = pd.to_datetime(entry["date"])
-                    season = (
-                        f"{(date.year - 1) % 100:02}/{date.year % 100:02}"
-                        if date.month < 7
-                        else f"{date.year % 100:02}/{(date.year + 1) % 100:02}"
-                    )
-                    processed_data.append(
-                        {
-                            "player_id": player_id,
-                            "date": entry.get("date"),
-                            "club_id": entry.get("clubID"),
-                            "value": entry.get("value"),
-                            "season": season,
-                        }
-                    )
-                return processed_data
-            else:
-                return []
+    async with session.get(url) as response:
+        if response.status == 200:
+            market_value_data = await response.json()
+            processed_data = []
+            for entry in market_value_data.get("marketValueHistory", []):
+                date = pd.to_datetime(entry["date"])
+                season = (
+                    f"{(date.year - 1) % 100:02}/{date.year % 100:02}"
+                    if date.month < 7
+                    else f"{date.year % 100:02}/{(date.year + 1) % 100:02}"
+                )
+                processed_data.append(
+                    {
+                        "player_id": player_id,
+                        "date": entry.get("date"),
+                        "club_id": entry.get("clubID"),
+                        "value": entry.get("value"),
+                        "season": season,
+                    }
+                )
+            return processed_data
+        else:
+            return []
 
 
-async def get_player_jersey_number(player_id):
+async def get_player_jersey_number(player_id, session):
     """
     Obtains every recorded jersey number a player has worn
     """
     url = f"http://localhost:8000/players/{player_id}/jersey_numbers"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            if response.status == 200:
-                jersey_data = await response.json()
-                return [
-                    {
-                        "player_id": player_id,
-                        "season": entry.get("season"),
-                        "club_id": entry.get("club"),
-                        "jersey_number": entry.get("jerseyNumber"),
-                    }
-                    for entry in jersey_data.get("jerseyNumbers", [])
-                ]
-            else:
-                return []
+    async with session.get(url) as response:
+        if response.status == 200:
+            jersey_data = await response.json()
+            return [
+                {
+                    "player_id": player_id,
+                    "season": entry.get("season"),
+                    "club_id": entry.get("club"),
+                    "jersey_number": entry.get("jerseyNumber"),
+                }
+                for entry in jersey_data.get("jerseyNumbers", [])
+            ]
+        else:
+            return []
 
 
 async def build_player_dataset(competitions_seasons):
@@ -159,6 +159,9 @@ async def build_player_dataset(competitions_seasons):
     """
     player_ids = set()
     competition_clubs = {}
+
+    # Create semaphore inside the function
+    semaphore = asyncio.Semaphore(100)
 
     async def process_club(competition_id, season_id, club, player_ids):
         """
@@ -214,21 +217,23 @@ async def build_player_dataset(competitions_seasons):
     jersey_numbers_list = []
     market_values_list = []
 
-    async def process_player(player_id, progress_bar):
+    async def process_player(player_id, progress_bar, semaphore):
         """
         Fetch all data for a single player
         """
-        player_info, jersey_numbers, market_values = await fetch_all_player_data(
-            {"player_id": player_id}
-        )
-        if player_info:
-            player_info_list.append(player_info)
-        if jersey_numbers:
-            jersey_numbers_list.extend(jersey_numbers)
-        if market_values:
-            market_values_list.extend(market_values)
-        progress_bar.update(1)
+        async with semaphore:
+            player_info, jersey_numbers, market_values = await fetch_all_player_data(
+                {"player_id": player_id}
+            )
+            if player_info:
+                player_info_list.append(player_info)
+            if jersey_numbers:
+                jersey_numbers_list.extend(jersey_numbers)
+            if market_values:
+                market_values_list.extend(market_values)
+            progress_bar.update(1)
 
+    # Intermediary step to process in batches
     BATCH_SIZE = 1600
     batches = [
         list(player_ids)[i : i + BATCH_SIZE]
@@ -238,7 +243,10 @@ async def build_player_dataset(competitions_seasons):
     for batch in batches:
         with tqdm(total=len(batch), desc="[Processing Players...]") as progress_bar:
             await asyncio.gather(
-                *[process_player(player_id, progress_bar) for player_id in batch]
+                *[
+                    process_player(player_id, progress_bar, semaphore)
+                    for player_id in batch
+                ]
             )
 
     # Step 3: Convert competition_clubs dictionary to list
