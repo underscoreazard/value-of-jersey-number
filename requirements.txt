@@ -3,3 +3,5 @@ ipykernel
 pandas
 matplotlib
 requests
+aiohttp
+tqdm

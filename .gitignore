@@ -31,6 +31,9 @@ env/
 # Ignore VSCode settings and directories
 .vscode/
 
+# Ignore JupyterLab settings and directories
+.virtual_documents/
+
 # Ignore jupyter notebook's notebook-specific data
 *.checkpoint
 
