@@ -2,6 +2,8 @@ jupyterlab
 ipykernel
 pandas
 matplotlib
+seaborn
+missingno
 requests
 aiohttp
 tqdm
