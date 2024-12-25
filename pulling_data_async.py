@@ -15,7 +15,7 @@ async def fetch_all_player_data(player):
     player_id = player["player_id"]
 
     async def fetch_player_info_task(session):
-        return await fetch_player_info(player_id, session)
+        return await get_player_info(player_id, session)
 
     async def fetch_jersey_number_task(session):
         return await get_player_jersey_number(player_id, session)
@@ -23,15 +23,19 @@ async def fetch_all_player_data(player):
     async def fetch_market_values_task(session):
         return await get_player_market_values(player_id, session)
 
+    async def fetch_stats_task(session):
+        return await get_player_stats(player_id, session)
+
     # Run all tasks in parallel
     async with aiohttp.ClientSession() as session:
-        player_info, jersey_numbers, market_values = await asyncio.gather(
+        player_info, jersey_numbers, market_values, player_stats = await asyncio.gather(
             fetch_player_info_task(session),
             fetch_jersey_number_task(session),
             fetch_market_values_task(session),
+            fetch_stats_task(session),
         )
 
-    return player_info, jersey_numbers, market_values
+    return player_info, jersey_numbers, market_values, player_stats
 
 
 async def get_clubs(competition_id, season_id):
@@ -71,7 +75,7 @@ async def get_players(club_id, season_id, player_ids):
                 )
 
 
-async def fetch_player_info(player_id, session):
+async def get_player_info(player_id, session):
     """
     Retrieves information on a specific player
     """
@@ -123,6 +127,7 @@ async def get_player_market_values(player_id, session):
                         "player_id": player_id,
                         "date": entry.get("date"),
                         "club_id": entry.get("clubID"),
+                        "club_name": entry.get("clubName"),
                         "value": entry.get("value"),
                         "season": season,
                     }
@@ -148,6 +153,34 @@ async def get_player_jersey_number(player_id, session):
                     "jersey_number": entry.get("jerseyNumber"),
                 }
                 for entry in jersey_data.get("jerseyNumbers", [])
+            ]
+        else:
+            return []
+
+
+async def get_player_stats(player_id, session):
+    """
+    Obtains basic stats for a player's career
+    """
+    url = f"http://localhost:8000/players/{player_id}/stats"
+    async with session.get(url) as response:
+        if response.status == 200:
+            stats_data = await response.json()
+            return [
+                {
+                    "player_id": player_id,
+                    "competition_id": entry.get("competitionID"),
+                    "competition_name": entry.get("competitionName"),
+                    "season": entry.get("seasonID"),
+                    "club_id": entry.get("clubID"),
+                    "appearances": entry.get("appearances"),
+                    "minutes_played": entry.get("minutesPlayed"),
+                    "goals": entry.get("goals"),
+                    "assists": entry.get("assists"),
+                    "yellow_cards": entry.get("yellowCards"),
+                    "red_cards": entry.get("redCards"),
+                }
+                for entry in stats_data.get("stats", [])
             ]
         else:
             return []
@@ -216,14 +249,15 @@ async def build_player_dataset(competitions_seasons):
     player_info_list = []
     jersey_numbers_list = []
     market_values_list = []
+    player_stats_list = []
 
     async def process_player(player_id, progress_bar, semaphore):
         """
         Fetch all data for a single player
         """
         async with semaphore:
-            player_info, jersey_numbers, market_values = await fetch_all_player_data(
-                {"player_id": player_id}
+            player_info, jersey_numbers, market_values, player_stats = (
+                await fetch_all_player_data({"player_id": player_id})
             )
             if player_info:
                 player_info_list.append(player_info)
@@ -231,6 +265,9 @@ async def build_player_dataset(competitions_seasons):
                 jersey_numbers_list.extend(jersey_numbers)
             if market_values:
                 market_values_list.extend(market_values)
+            if player_stats:
+                player_stats_list.extend(player_stats)
+
             progress_bar.update(1)
 
     # Intermediary step to process in batches
@@ -262,17 +299,66 @@ async def build_player_dataset(competitions_seasons):
         for club_data in competition_clubs.values()
     ]
 
+    # Step 4: Add youth teams asynchronously
+    """
+    FOR FUTURE: THIS WON'T WORK FOR ALL TEAMS CORRECTLY AS IT WORKS OFF OF TEAM POPULARITY
+    """
+
+    async def add_youth_team_data(club):
+        """
+        Fetch youth team data for a single club
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"http://localhost:8000/clubs/search/{club['club_name']}"
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        json_data = await response.json()
+                        results = json_data.get("results", [])
+
+                        club["youth_team_id"] = None
+                        club["youth_team_name"] = None
+
+                        senior_team_country = (
+                            results[0].get("country") if results else None
+                        )
+                        for result in results[
+                            1:
+                        ]:  # Skip the first result (assumed senior team)
+                            if result.get("country") == senior_team_country:
+                                club["youth_team_id"] = result.get("id")
+                                club["youth_team_name"] = result.get("name")
+                                break  # Use the first match and stop searching
+            except Exception as e:
+                print(f"Error fetching youth team for {club['club_name']}: {e}")
+                club["youth_team_id"] = None
+                club["youth_team_name"] = None
+
+        progress_bar.update(1)
+
+    with tqdm(
+        total=len(competition_clubs_list), desc="[Adding youth team information...]"
+    ) as progress_bar:
+        await asyncio.gather(
+            *[add_youth_team_data(club) for club in competition_clubs_list]
+        )
+
     # Export data
     export_data(
         player_info_list,
         jersey_numbers_list,
         market_values_list,
+        player_stats_list,
         competition_clubs_list,
     )
 
 
 def export_data(
-    player_info_list, jersey_numbers_list, market_values_list, competition_clubs_list
+    player_info_list,
+    jersey_numbers_list,
+    market_values_list,
+    player_stats_list,
+    competition_clubs_list,
 ):
     """
     Exports the datasets created into a .csv file
@@ -297,6 +383,9 @@ def export_data(
         os.path.join(data_dir, "player_market_values.csv"), index=False
     )
 
+    player_stats_df = pd.DataFrame(player_stats_list)
+    player_stats_df.to_csv(os.path.join(data_dir, "player_stats.csv"), index=False)
+
     # Export competition_clubs
     competition_clubs_df = pd.DataFrame(competition_clubs_list)
     competition_clubs_df.to_csv(
@@ -314,7 +403,6 @@ if __name__ == "__main__":
         "FR1",  # Ligue 1
     ]
     seasons = [
-        "2024",
         "2023",
         "2022",
         "2021",
@@ -324,6 +412,7 @@ if __name__ == "__main__":
         "2017",
         "2016",
         "2015",
+        "2014",
     ]
 
     competitions_seasons = list(itertools.product(competitions, seasons))
