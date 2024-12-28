@@ -3,6 +3,7 @@ ipykernel
 pandas
 matplotlib
 seaborn
+joypy
 missingno
 requests
 aiohttp
