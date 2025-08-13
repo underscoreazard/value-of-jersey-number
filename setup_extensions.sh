@@ -7,7 +7,7 @@ conda install -c conda-forge nodejs=20 -y
 pip install -r requirements.txt
 
 # Install JupyterLab extensions (prebuilt packages)
-pip install jupyterlab-lsp jupyterlab-spellchecker jupyterlab-code-formatter
+pip install jupyterlab-lsp jupyterlab-spellchecker
 
 # Install language server for Python (required by JupyterLab-LSP)
 pip install 'python-lsp-server[all]'
