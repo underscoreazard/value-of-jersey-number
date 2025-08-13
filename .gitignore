@@ -40,3 +40,6 @@ env/
 # Ignore any database files or temporary data
 *.db
 *.sqlite3
+
+# Ignore archived notebooks
+notebooks/archived_notebooks/

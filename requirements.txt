@@ -3,8 +3,11 @@ ipykernel
 pandas
 matplotlib
 seaborn
+scikit-learn
 joypy
 missingno
 requests
 aiohttp
 tqdm
+lightgbm
+statsmodels
